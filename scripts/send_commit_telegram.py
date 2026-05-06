@@ -3,13 +3,27 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib import error, request
 
-import requests
-from dotenv import load_dotenv
+
+def _load_dotenv(dotenv_path: Path) -> None:
+    """Minimal .env loader to avoid runtime dependency on python-dotenv."""
+    if not dotenv_path.exists():
+        return
+    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 
 def _parse_chat_id(raw: str) -> int | str:
@@ -31,18 +45,21 @@ def _git_output(args: list[str], cwd: Path) -> str:
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
-    load_dotenv(repo_root / ".env")
+    _load_dotenv(repo_root / ".env")
 
     if not _get_env_flag("TELEGRAM_COMMIT_NOTIFY_ENABLED", "true"):
+        print("commit-telegram: disabled")
         return 0
 
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_ids_raw = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat_ids_raw:
+        print("commit-telegram: missing token or chat id")
         return 0
 
     chat_ids = [_parse_chat_id(item) for item in chat_ids_raw.split(",") if item.strip()]
     if not chat_ids:
+        print("commit-telegram: no valid chat ids")
         return 0
 
     try:
@@ -53,6 +70,7 @@ def main() -> int:
         author = _git_output(["log", "-1", "--pretty=%an"], repo_root)
         subject = _git_output(["log", "-1", "--pretty=%s"], repo_root)
     except Exception:
+        print("commit-telegram: unable to read git commit metadata")
         return 0
 
     text = (
@@ -65,21 +83,32 @@ def main() -> int:
     )
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload_template = {
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+
     for chat_id in chat_ids:
         try:
-            requests.post(
+            payload = dict(payload_template)
+            payload["chat_id"] = chat_id
+            body = json.dumps(payload).encode("utf-8")
+            req = request.Request(
                 url,
-                json={
-                    "chat_id": chat_id,
-                    "text": text,
-                    "parse_mode": "HTML",
-                    "disable_web_page_preview": True,
-                },
-                timeout=10,
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
             )
-        except Exception:
+            with request.urlopen(req, timeout=10) as resp:
+                # Non-2xx should raise, but keep a defensive check.
+                if resp.status < 200 or resp.status >= 300:
+                    print(f"commit-telegram: unexpected status for chat {chat_id}: {resp.status}")
+                    return 0
+            print(f"commit-telegram: sent to chat {chat_id}")
+        except (error.URLError, TimeoutError, ValueError):
             # Avoid blocking commits if Telegram fails.
-            pass
+            print(f"commit-telegram: failed for chat {chat_id}")
 
     return 0
 
