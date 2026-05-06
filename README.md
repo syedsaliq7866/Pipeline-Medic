@@ -147,6 +147,23 @@ VERCEL_TEAM_ID=...
 VERCEL_PROJECT_ID=...
 ```
 
+### 3.1 Optional: Telegram alert on every local commit
+
+If you want a Telegram message whenever you run `git commit` locally:
+
+```bash
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File scripts/install-git-hook.ps1
+```
+
+This installs `.githooks/post-commit` into `.git/hooks/post-commit`.
+The hook uses `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` from your `.env`.
+Disable commit alerts any time with:
+
+```env
+TELEGRAM_COMMIT_NOTIFY_ENABLED=false
+```
+
 ### 4. Run the backend
 
 ```bash

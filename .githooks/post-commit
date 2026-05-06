@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -z "$REPO_ROOT" ] && exit 0
+
+PYTHON_BIN="python"
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+fi
+
+"$PYTHON_BIN" "$REPO_ROOT/scripts/send_commit_telegram.py" >/dev/null 2>&1 || true
